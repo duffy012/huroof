@@ -2,23 +2,50 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
-    function isAdmin() { return signedIn() && request.auth.token.email == "dhaaaariiii@gmail.com"; }
+    function isAdmin() { return signedIn() && request.auth.token.get("email", "") == "dhaaaariiii@gmail.com" && request.auth.token.get("email_verified", false) == true; }
+    // نفس شكل الأرقام اللي تسويها اللعبة (uid في index.html)، عشان ما ينحط أي نص غريب في الصفحة
+    function okId(id) { return id.matches('^[a-z0-9]{4,24}$'); }
+    function okNum(v) { return v is int || v is float; }
+
+    function validGame(d) {
+      return d.keys().hasOnly(['name', 't', 'by'])
+          && d.name is string && d.name.size() > 0 && d.name.size() <= 60
+          && okNum(d.t) && d.by is string;
+    }
+    function validQuestion(d) {
+      return d.keys().hasOnly(['g', 'l', 'q', 'a', 't', 'by'])
+          && d.g is string && okId(d.g)
+          && d.l is string && d.l.size() <= 2
+          && d.q is string && d.q.size() > 0 && d.q.size() <= 500
+          && d.a is string && d.a.size() > 0 && d.a.size() <= 100
+          && okNum(d.t) && d.by is string;
+    }
+    function gameOwner(gid) { return get(/databases/$(database)/documents/games/$(gid)).data.by == request.auth.uid; }
 
     match /games/{id} {
       allow read: if true;
-      allow create: if signedIn() && request.resource.data.by == request.auth.uid
-                    && request.resource.data.name is string && request.resource.data.name.size() <= 60;
-      allow update, delete: if signedIn() && (resource.data.by == request.auth.uid || isAdmin());
+      allow create: if signedIn() && okId(id) && validGame(request.resource.data)
+                    && request.resource.data.by == request.auth.uid;
+      // التعديل ما يغيّر صاحب اللعبة
+      allow update: if signedIn() && (resource.data.by == request.auth.uid || isAdmin())
+                    && validGame(request.resource.data)
+                    && request.resource.data.by == resource.data.by;
+      allow delete: if signedIn() && (resource.data.by == request.auth.uid || isAdmin());
     }
 
     match /questions/{id} {
       allow read: if true;
-      allow create: if signedIn() && request.resource.data.by == request.auth.uid
-                    && request.resource.data.q is string && request.resource.data.q.size() <= 500
-                    && request.resource.data.a is string && request.resource.data.a.size() <= 100
+      allow create: if signedIn() && okId(id) && validQuestion(request.resource.data)
+                    && request.resource.data.by == request.auth.uid
                     && exists(/databases/$(database)/documents/games/$(request.resource.data.g));
-      allow update, delete: if signedIn() && (resource.data.by == request.auth.uid || isAdmin()
-                    || get(/databases/$(database)/documents/games/$(resource.data.g)).data.by == request.auth.uid);
+      // التعديل ما ينقل السؤال للعبة ثانية وما يغيّر صاحبه
+      allow update: if signedIn() && (resource.data.by == request.auth.uid || isAdmin() || gameOwner(resource.data.g))
+                    && validQuestion(request.resource.data)
+                    && request.resource.data.by == resource.data.by
+                    && request.resource.data.g == resource.data.g;
+      allow delete: if signedIn() && (resource.data.by == request.auth.uid || isAdmin()
+                    || !exists(/databases/$(database)/documents/games/$(resource.data.g))
+                    || gameOwner(resource.data.g));
     }
   }
 }
