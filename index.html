@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>حروف مع باسل</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1F3F6E">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="حروف">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lalezar&family=Readex+Pro:wght@300;400;600;700&display=swap">
 <style>
@@ -185,6 +190,27 @@ textarea{resize:vertical}
 @media (prefers-reduced-motion:reduce){.live .dot.on{animation:none}}
 .localnote{background:#FFF7E3;border:1px solid #F3D48A;border-radius:12px;padding:10px 12px;font-size:.85rem;color:#6B4A00;display:flex;flex-direction:column;gap:8px;line-height:1.6}
 [hidden]{display:none!important}
+@media (max-width:600px){
+  body{padding-block:10px}
+  .top{gap:8px 10px;margin-bottom:10px}
+  .logo{width:46px;height:46px;border-radius:12px;padding:5px}
+  .brand{font-size:1.75rem}
+  .brand small{font-size:.72rem}
+  .tabs{margin-inline-start:auto}
+  .teams{width:100%;flex-wrap:nowrap;gap:6px}
+  .team{flex:1 1 0;min-width:0;gap:5px;padding:4px 4px 4px 10px}
+  .team .dot,.team .dir{display:none}
+  .team .nm{font-size:.82rem;line-height:1.25}
+  .team>div:not(.adj){min-width:0;flex:1}
+  .team .sc{font-size:1.25rem;min-width:34px;padding:2px 6px}
+}
+@media (pointer:coarse){.team .adj button{width:30px;height:26px;font-size:1rem}}
+.bulk{background:#F4F8FD;border:1px dashed var(--line);border-radius:14px;padding:10px 12px}
+.bulk summary{cursor:pointer;color:var(--navy);font-weight:600}
+.bulk[open]>*+*{margin-top:8px}
+.bulk textarea{width:100%;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:.95rem;color:var(--ink)}
+.bulk .bad{color:#A33}
+.sharebox{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.85rem;color:var(--muted)}
 </style>
 <script src="firebase-config.js"></script>
 <script type="module">
@@ -195,7 +221,10 @@ if (window.FIREBASE_CONFIG) {
     const fs = await import(base + "firebase-firestore.js");
     const au = await import(base + "firebase-auth.js");
     const cfg = window.FIREBASE_CONFIG, app = initializeApp(cfg);
-    const db = cfg.databaseId ? fs.getFirestore(app, cfg.databaseId) : fs.getFirestore(app);
+    // الأسئلة تنحفظ في الجهاز عشان تشتغل بدون نت
+    let db;
+    try { db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) }, cfg.databaseId) }
+    catch (e) { db = cfg.databaseId ? fs.getFirestore(app, cfg.databaseId) : fs.getFirestore(app) }
     const ref = p => fs.doc(db, p);
     const adapter = {
       doc: p => ({ set: d => fs.setDoc(ref(p), d), update: d => fs.updateDoc(ref(p), d), delete: () => fs.deleteDoc(ref(p)) }),
@@ -212,7 +241,7 @@ if (window.FIREBASE_CONFIG) {
       signOut: () => au.signOut(auth)
     };
     window.dispatchEvent(new Event("fb-ready"));
-  } catch (e) { console.error("Firebase failed to load", e) }
+  } catch (e) { console.error("Firebase failed to load", e); window.__FBFAIL = true; window.dispatchEvent(new Event("fb-fail")) }
 }
 </script>
 </head>
@@ -260,6 +289,7 @@ if (window.FIREBASE_CONFIG) {
       <button class="btn gold" id="randBtn">حرف عشوائي</button>
       <button class="btn" id="undoBtn">تراجع <kbd>Z</kbd></button>
       <button class="btn ghost" id="newRoundBtn">جولة جديدة</button>
+      <button class="btn navy" id="installBtn" hidden>ثبّت اللعبة على جهازك</button>
     </div>
   </section>
 
@@ -328,6 +358,8 @@ const BKEY="huroof-banks-v1";
 let B=(()=>{try{const b=JSON.parse(localStorage.getItem(BKEY));if(b&&Array.isArray(b.games))return b}catch(e){}return {games:[],active:"builtin",fill:true,edit:"builtin"}})();
 function saveB(){try{localStorage.setItem(BKEY,JSON.stringify(B))}catch(e){}}
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+// in-app browsers (Instagram, Snapchat, Facebook, TikTok, Android webviews…) are blocked by Google sign-in
+const IN_APP=/FBAN|FBAV|FB_IAB|Instagram|Snapchat|musical_ly|Bytedance|TikTok|Line\/|; wv\)/i.test(navigator.userAgent);
 let ME="", FB=null, PENDING=null, LIVE=null, LIVE_READY=false, CAN_WRITE=true, GAMES=B.games;
 const game=id=>GAMES.find(g=>g.id===id);
 function normLetter(ans){
@@ -413,6 +445,8 @@ function pick(i){
   const cell=S.cells[i];
   S.q=cell.o?null:nextQ(cell.l);
   resetTimer(); save(); render();
+  // on phones the question sits under the board: bring it into view
+  if(matchMedia("(max-width:900px)").matches)panel.scrollIntoView({behavior:matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth",block:"start"});
 }
 
 /* ---------- Win check ---------- */
@@ -530,26 +564,43 @@ function setView(v){VIEW=v;document.querySelectorAll(".tab").forEach(t=>t.classL
   document.getElementById("playView").hidden=v!=="play";document.getElementById("bankView").hidden=v!=="bank";
   if(v==="bank"){stopTimer();renderBank()}else render()}
 document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>setView(t.dataset.view));
+async function copyText(t,okMsg){try{await navigator.clipboard.writeText(t);toast(okMsg)}catch(e){prompt("انسخ:",t)}}
 let toastT;function toast(m){let t=document.querySelector(".toast");if(!t){t=document.createElement("div");t.className="toast";t.setAttribute("role","status");document.body.appendChild(t)}t.textContent=m;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,2200)}
 
 /* ---------- Bank editor ---------- */
-let EDITQ=null, CONFIRM_DEL=false;
+let EDITQ=null, CONFIRM_DEL=false, BULK_OPEN=false, BULK_BUSY="";
+// "question | answer [| letter]" per line; tabs (pasted from a spreadsheet) work too
+function parseBulk(txt){
+  const ok=[],bad=[];
+  String(txt||"").split(/\r?\n/).filter(x=>x.trim()).forEach((line,i)=>{
+    const parts=line.split(/\s*[|\t]\s*/).map(x=>x.trim()).filter(Boolean);
+    const q=(parts[0]||"").slice(0,500),a=(parts[1]||"").slice(0,100),l=LETTERS.includes(parts[2])?parts[2]:normLetter(a);
+    if(q&&a&&l)ok.push({q,a,l,line});else bad.push({n:i+1,line});
+  });
+  return {ok,bad};
+}
+function bulkInfo(){const el=document.getElementById("bulkInfo"),t=document.getElementById("bulkT");if(!el||!t)return;
+  const btn=document.querySelector('[data-b="bulk"]');if(btn)btn.disabled=!!BULK_BUSY;
+  if(BULK_BUSY){el.textContent=BULK_BUSY;return}
+  const {ok,bad}=parseBulk(t.value);
+  el.innerHTML=!t.value.trim()?"":`جاهز <b>${ok.length}</b> سؤال`+(bad.length?` · <span class="bad">أسطر ناقصة أو ما عرفنا حرفها: ${bad.slice(0,12).map(x=>x.n).join("، ")}${bad.length>12?"…":""}</span>`:"");}
 function letterOpts(sel){return `<option value="">—</option>`+LETTERS.map(l=>`<option ${l===sel?"selected":""}>${l}</option>`).join("")}
 function renderBank(){
   // keep whatever is being typed across live refreshes
-  const keep={};["aQ","aA","aL","eQ","eA","eL","gName"].forEach(id=>{const el=document.getElementById(id);if(el)keep[id]=el.value});
+  const keep={};["aQ","aA","aL","eQ","eA","eL","gName","bulkT"].forEach(id=>{const el=document.getElementById(id);if(el)keep[id]=el.value});
   const fa=document.activeElement, fid=fa&&fa.id, sel=fa&&"selectionStart" in fa?[fa.selectionStart,fa.selectionEnd]:null;
   if(B.edit!=="builtin"&&!game(B.edit)&&(!LIVE||LIVE_READY)&&B.edit!==PENDING)B.edit="builtin";
   if(B.edit!=="builtin"&&!game(B.edit)){document.getElementById("bankMain").innerHTML=`<div class="empty">جاري تحميل الألعاب…</div>`;return}
-  document.getElementById("liveBadge").innerHTML=LIVE?`<span class="dot on"></span>مباشر: أي لعبة أو سؤال ينضاف يطلع عند الكل فوراً`:`<span class="dot"></span>محفوظ في هذا المتصفح بس`;
+  document.getElementById("liveBadge").innerHTML=LIVE?`<span class="dot on"></span>مباشر: أي لعبة أو سؤال ينضاف يطلع عند الكل فوراً`:OFFLINE_FB?`<span class="dot"></span>ما قدرنا نوصل للأسئلة المشتركة (النت أو الشبكة حاجبة الموقع). أي شي تضيفه الحين ينحفظ في هذا المتصفح، وتقدر ترفعه للكل بعدين.`:`<span class="dot"></span>محفوظ في هذا المتصفح بس`;
   document.getElementById("newGameForm").hidden=!CAN_WRITE;
   const ab=document.getElementById("authBox");ab.hidden=!FB;
-  if(FB){const u=FB.user();ab.innerHTML=u?`<span>داخل باسم <b>${esc(u.displayName||u.email||"")}</b></span><button class="btn ghost" type="button" id="signOut">خروج</button>`:`<span>سجّل دخول عشان تضيف ألعاب وأسئلة</span><button class="btn navy" type="button" id="signIn">دخول بحساب Google</button>`}
+  if(FB){const u=FB.user();ab.innerHTML=u?`<span>داخل باسم <b>${esc(u.displayName||u.email||"")}</b></span><button class="btn ghost" type="button" id="signOut">خروج</button>`:(IN_APP?`<span>Google ما تسمح بالدخول من داخل هذا التطبيق (واتساب، انستقرام، سناب…). افتح الرابط في <b>Safari</b> أو <b>Chrome</b> عشان تسجّل دخول.</span><button class="btn navy" type="button" id="copyLink">نسخ رابط الموقع</button>`
+    :`<span>سجّل دخول عشان تضيف ألعاب وأسئلة</span><button class="btn navy" type="button" id="signIn">دخول بحساب Google</button>`)}
   const gl=document.getElementById("gameList");
   const builtinCount=LETTERS.reduce((n,l)=>n+BANK[l].length,0);
   const localNote=LIVE&&B.games.length&&CAN_WRITE?`<div class="localnote">عندك ${B.games.length} لعبة محفوظة على هذا الجهاز بس، وما يشوفها غيرك.<button class="btn gold" id="uploadLocal" type="button">ارفعها عشان تطلع عند الكل</button></div>`:"";
   gl.innerHTML=localNote+[{id:"builtin",name:"الأسئلة الجاهزة",n:builtinCount},...GAMES.map(g=>({id:g.id,name:g.name,n:g.qs.length}))]
-   .map(g=>`<button class="gitem ${B.edit===g.id?"on":""}" data-g="${g.id}"><span>${esc(g.name)}<br><small>${g.n} سؤال</small></span>${B.active===g.id?`<span class="play">قيد اللعب</span>`:""}</button>`).join("");
+   .map(g=>`<button class="gitem ${B.edit===g.id?"on":""}" data-g="${esc(g.id)}"><span>${esc(g.name)}<br><small>${g.n} سؤال</small></span>${B.active===g.id?`<span class="play">قيد اللعب</span>`:""}</button>`).join("");
   const m=document.getElementById("bankMain");
   const isB=B.edit==="builtin", g=isB?null:game(B.edit);
   const qs=isB?LETTERS.flatMap(l=>BANK[l].map(([q,a])=>({l,q,a}))):g.qs;
@@ -559,6 +610,7 @@ function renderBank(){
      :`<div class="fld"><label for="gName">اسم اللعبة</label><input id="gName" value="${esc(g.name)}" maxlength="60" ${CAN_WRITE?"":"readonly"}></div>`)+
      `<div class="row">
        <button class="btn gold" data-b="play">${B.active===B.edit?"العب الحين":"العب بهذي اللعبة"}</button>
+       ${LIVE&&!isB?`<button class="btn" data-b="link">نسخ رابط اللعبة</button>`:""}
        ${CAN_WRITE?`<button class="btn" data-b="dup">نسخ</button>`:""}
        ${isB||!CAN_WRITE?"":`<button class="btn ${CONFIRM_DEL?"red":"ghost"}" data-b="del">${CONFIRM_DEL?"متأكد؟ اضغط مرة ثانية":"حذف"}</button>`}
      </div></div>
@@ -570,20 +622,27 @@ function renderBank(){
       <div class="fld"><label for="aA">الجواب</label><input id="aA" required placeholder="مثال: الكويت"></div>
       <div class="fld"><label for="aL">الحرف</label><select id="aL">${letterOpts("")}</select></div>
       <button class="btn navy" type="submit">أضف</button>
-    </form><p class="hint">الحرف ينحط تلقائي من أول حرف في الجواب (بدون «ال»)، وتقدر تغيّره. اضغط Enter في خانة الجواب للإضافة بسرعة.</p>`;
+    </form><p class="hint">الحرف ينحط تلقائي من أول حرف في الجواب (بدون «ال»)، وتقدر تغيّره. اضغط Enter في خانة الجواب للإضافة بسرعة.</p>
+    <details class="bulk" id="bulkBox" ${BULK_OPEN?"open":""}><summary>إضافة أسئلة كثيرة مرة وحدة</summary>
+      <p class="hint">كل سؤال في سطر: السؤال ثم <b>|</b> ثم الجواب. تقدر تنسخها من Excel أو Google Sheets (عمود للسؤال وعمود للجواب).<br>مثال: <code>عاصمة دولة الكويت؟ | الكويت</code></p>
+      <textarea id="bulkT" rows="6" placeholder="عاصمة دولة الكويت؟ | الكويت&#10;أكبر كوكب في المجموعة الشمسية؟ | المشتري"></textarea>
+      <p class="hint" id="bulkInfo" role="status"></p>
+      <button class="btn navy" type="button" data-b="bulk">أضف الكل</button>
+    </details>`;
   h+=`<div class="qlist">`;
   if(!qs.length)h+=`<div class="empty">ما فيه أسئلة للحين. اكتب أول سؤال وجوابه فوق واضغط «أضف».</div>`;
   LETTERS.filter(l=>cnt[l]).forEach(l=>{
     h+=`<div class="lgroup"><h3>${l} <small>${cnt[l]} سؤال</small></h3>`;
     qs.forEach((x,i)=>{if(x.l!==l)return;
-      if(!isB&&EDITQ===x.id)h+=`<div class="qi editing"><div class="ed"><textarea id="eQ" rows="2">${esc(x.q)}</textarea><input id="eA" value="${esc(x.a)}"><select id="eL">${letterOpts(x.l)}</select></div><div class="acts"><button class="btn navy" data-b="esave" data-id="${x.id}">حفظ</button><button class="btn ghost" data-b="ecancel">إلغاء</button></div></div>`;
-      else h+=`<div class="qi"><div class="t">${esc(x.q)}<span>${esc(x.a)}</span></div>${isB||!CAN_WRITE?"":`<div class="acts"><button class="btn" data-b="edit" data-id="${x.id}">تعديل</button><button class="btn ghost" data-b="rm" data-id="${x.id}">حذف</button></div>`}</div>`;
+      if(!isB&&EDITQ===x.id)h+=`<div class="qi editing"><div class="ed"><textarea id="eQ" rows="2">${esc(x.q)}</textarea><input id="eA" value="${esc(x.a)}"><select id="eL">${letterOpts(x.l)}</select></div><div class="acts"><button class="btn navy" data-b="esave" data-id="${esc(x.id)}">حفظ</button><button class="btn ghost" data-b="ecancel">إلغاء</button></div></div>`;
+      else h+=`<div class="qi"><div class="t">${esc(x.q)}<span>${esc(x.a)}</span></div>${isB||!CAN_WRITE?"":`<div class="acts"><button class="btn" data-b="edit" data-id="${esc(x.id)}">تعديل</button><button class="btn ghost" data-b="rm" data-id="${esc(x.id)}">حذف</button></div>`}</div>`;
     });
     h+=`</div>`;
   });
   h+=`</div>`;
   m.innerHTML=h;
   Object.entries(keep).forEach(([id,v])=>{const el=document.getElementById(id);if(el&&id!=="gName")el.value=v;else if(el&&id==="gName"&&fid==="gName")el.value=v});
+  bulkInfo();
   if(fid){const el=document.getElementById(fid);if(el){el.focus();if(sel&&el.setSelectionRange)try{el.setSelectionRange(sel[0],sel[1])}catch(e){}}}
 }
 /* store operations: shared db when available, otherwise this browser */
@@ -610,8 +669,10 @@ const bankMain=document.getElementById("bankMain");
 bankMain.addEventListener("input",e=>{
   if(e.target.id==="aA"){const L=normLetter(e.target.value);if(L)document.getElementById("aL").value=L}
   if(e.target.id==="eA"){const L=normLetter(e.target.value);if(L)document.getElementById("eL").value=L}
+  if(e.target.id==="bulkT")bulkInfo();
 });
 bankMain.addEventListener("change",async e=>{if(e.target.id==="gName"){const g=game(B.edit);const n=e.target.value.trim();if(g&&n&&n!==g.name){try{await sRename(g.id,n);renderBank();toast("تم تغيير الاسم")}catch(err){writeErr(err)}}}});
+bankMain.addEventListener("toggle",e=>{if(e.target.id==="bulkBox")BULK_OPEN=e.target.open},true);
 bankMain.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey&&(e.target.id==="aQ")){e.preventDefault();document.getElementById("aA").focus()}});
 bankMain.addEventListener("submit",async e=>{if(e.target.id!=="addForm")return;e.preventDefault();
   const g=game(B.edit);if(!g)return;const qE=document.getElementById("aQ"),aE=document.getElementById("aA"),lE=document.getElementById("aL");
@@ -624,10 +685,18 @@ bankMain.addEventListener("click",async e=>{
   const b=e.target.closest("[data-b]");if(!b)return;const a=b.dataset.b,g=game(B.edit);
   try{
   if(a==="play"){B.active=B.edit;saveB();S.score={red:0,green:0};S.used={};newRound();setView("play");toast("بدأت لعبة «"+activeName()+"»")}
+  else if(a==="link"){copyText(gameLink(g.id),"انسخ الرابط، أي أحد يفتحه تبدأ عنده هذي اللعبة")}
   else if(a==="dup"){const src=B.edit==="builtin"?LETTERS.flatMap(l=>BANK[l].map(([q,a])=>({l,q,a}))):g.qs;
     b.disabled=true;const id=PENDING=await sBulk((B.edit==="builtin"?"الأسئلة الجاهزة":g.name)+" (نسخة)",src,(i,n)=>b.textContent=`جاري النسخ… ${i}/${n}`);B.edit=id;saveB();renderBank();toast("تم النسخ")}
   else if(a==="del"){if(!CONFIRM_DEL){CONFIRM_DEL=true;renderBank();return}
     const id=B.edit;CONFIRM_DEL=false;b.disabled=true;b.textContent="جاري الحذف…";await sDelGame(id);if(B.active===id)B.active="builtin";B.edit="builtin";saveB();renderBank();toast("انحذفت اللعبة")}
+  else if(a==="bulk"){if(BULK_BUSY)return;const {ok,bad}=parseBulk(document.getElementById("bulkT").value);
+    if(!ok.length){toast(bad.length?"ما فيه ولا سطر صحيح، تأكد من علامة |":"الصق الأسئلة أول");return}
+    let n=0;const step=()=>{BULK_BUSY=`جاري الإضافة… ${n}/${ok.length}`;bulkInfo()};step();
+    // the box is re-rendered by live updates, so look it up again; whatever didn't go in stays there
+    const done=()=>{BULK_BUSY="";const t=document.getElementById("bulkT");if(t)t.value=bad.map(x=>x.line).concat(ok.slice(n).map(x=>x.line)).join("\n");renderBank()};
+    try{for(const x of ok){await sAddQ(g.id,x);n++;step()}}catch(err){done();throw err}
+    done();toast(`انضاف ${n} سؤال`+(bad.length?` · ${bad.length} سطر ما انضاف`:""))}
   else if(a==="rm"){await sRmQ(g.id,b.dataset.id);renderBank();toast("انحذف السؤال")}
   else if(a==="edit"){EDITQ=b.dataset.id;renderBank();document.getElementById("eQ").focus()}
   else if(a==="ecancel"){EDITQ=null;renderBank()}
@@ -651,6 +720,19 @@ document.getElementById("impFile").onchange=e=>{const f=e.target.files[0];if(!f)
 
 /* ---------- Live sharing (claude.ai) ---------- */
 let liveG={},liveQ={},gotG=false,gotQ=false;
+// ?game=<id> opens that game straight away (link copied from «بنك الأسئلة»)
+let LINK_GAME=new URLSearchParams(location.search).get("game");
+function gameLink(id){return location.origin+location.pathname+"?game="+encodeURIComponent(id)}
+function openLinkedGame(){
+  const id=LINK_GAME;LINK_GAME=null;
+  try{history.replaceState(null,"",location.pathname+location.hash)}catch(e){}
+  const g=game(id);
+  if(!g){toast("اللعبة اللي في الرابط ما عادت موجودة");return}
+  if(B.active!==id){B.active=id;S.score={red:0,green:0};S.used={};S.cells=makeBoard();S.sel=null;S.q=null;S.hist=[];S.won=null;save()}
+  B.edit=id;saveB();toast("بدأت لعبة «"+g.name+"»");
+}
+// only ids the app itself makes (uid()); anything else is ignored
+const okId=id=>/^[a-z0-9]{4,24}$/.test(id);
 function rebuildLive(){
   const list=Object.entries(liveG).map(([id,g])=>({id,name:String(g.name||"لعبة"),t:+g.t||0,qs:[]})).sort((a,b)=>a.t-b.t);
   const m={};list.forEach(g=>m[g.id]=g);
@@ -658,6 +740,7 @@ function rebuildLive(){
   list.forEach(g=>g.qs.sort((a,b)=>a.t-b.t));
   GAMES=list;if(PENDING&&game(PENDING))PENDING=null;
   const first=!LIVE_READY&&gotG&&gotQ;if(gotG&&gotQ)LIVE_READY=true;
+  if(first&&LINK_GAME)openLinkedGame();
   if(first){if(B.active!=="builtin"&&!game(B.active))B.active="builtin";
     if(S.cells.every(c=>!c.o)&&!S.won&&S.sel===null){S.cells=makeBoard();S.used={}}save()}
   if(VIEW==="bank")renderBank();
@@ -665,20 +748,26 @@ function rebuildLive(){
 }
 function startLive(db){
   LIVE=db;GAMES=[];
-  db.collection("games").onSnapshot(sn=>{liveG={};sn.docs.forEach(d=>liveG[d.id]=d.data());gotG=true;rebuildLive()},err=>console.warn(err));
-  db.collection("questions").onSnapshot(sn=>{liveQ={};sn.docs.forEach(d=>liveQ[d.id]=d.data());gotQ=true;rebuildLive()},err=>console.warn(err));
+  db.collection("games").onSnapshot(sn=>{liveG={};sn.docs.forEach(d=>{if(okId(d.id))liveG[d.id]=d.data()});gotG=true;rebuildLive()},err=>console.warn(err));
+  db.collection("questions").onSnapshot(sn=>{liveQ={};sn.docs.forEach(d=>{if(okId(d.id))liveQ[d.id]=d.data()});gotQ=true;rebuildLive()},err=>console.warn(err));
   if(VIEW==="bank")renderBank();
 }
+let OFFLINE_FB=false;
+function fbFallback(){if(FB||OFFLINE_FB)return;OFFLINE_FB=true;LIVE=null;GAMES=B.games;CAN_WRITE=true;if(VIEW==="bank")renderBank()}
 // Website mode: Firebase (config in firebase-config.js, SDK loaded by a module script in the page head)
 function attachFirebase(api){try{
   FB=api;CAN_WRITE=false;startLive(api.db);
   api.onAuth(u=>{ME=u?u.uid:"";CAN_WRITE=!!u;if(VIEW==="bank")renderBank()});
 }catch(e){console.warn(e);FB=null;LIVE=null;GAMES=B.games;CAN_WRITE=true}}
 if(window.FIREBASE_CONFIG){CAN_WRITE=false;
-  if(window.__FBAPI)attachFirebase(window.__FBAPI);else window.addEventListener("fb-ready",()=>attachFirebase(window.__FBAPI),{once:true});
+  if(window.__FBAPI)attachFirebase(window.__FBAPI);
+  else{window.addEventListener("fb-ready",()=>{OFFLINE_FB=false;attachFirebase(window.__FBAPI)},{once:true});
+    // Firebase blocked or not loading (school network, no internet): fall back to this browser so the bank still works
+    if(window.__FBFAIL)fbFallback();else{window.addEventListener("fb-fail",fbFallback,{once:true});setTimeout(()=>{if(!FB)fbFallback()},12000)}}
   document.addEventListener("click",async e=>{
     if(e.target.closest("#signIn")&&FB){try{await FB.signIn()}catch(err){toast("ما زبط الدخول: "+(err&&err.code||""))}}
     if(e.target.closest("#signOut")&&FB)FB.signOut();
+    if(e.target.closest("#copyLink"))copyText(location.href.split("#")[0],"انسخ الرابط، الصقه في Safari أو Chrome");
   });
 }
 (async()=>{
@@ -693,7 +782,7 @@ if(window.FIREBASE_CONFIG){CAN_WRITE=false;
 
 /* ---------- Panel ---------- */
 const panel=document.getElementById("panel");
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function render(){
   document.getElementById("subline").textContent="اللعبة الحالية: "+activeName()+" · التحكم كامل من المقدّم";
   document.getElementById("nmRed").textContent=S.names.red;
@@ -744,7 +833,7 @@ function render(){
     <label>اسم الفريق الأزرق<input id="inRed" value="${esc(S.names.red)}"></label>
     <label>اسم الفريق الذهبي<input id="inGreen" value="${esc(S.names.green)}"></label>
     <label>مدة الإجابة<select id="inSec">${[10,15,20,30,45,60].map(s=>`<option value="${s}" ${s==S.seconds?"selected":""}>${s} ثانية</option>`).join("")}</select></label>
-    <label>اللعبة (بنك الأسئلة)<select id="inGame"><option value="builtin" ${B.active==="builtin"?"selected":""}>الأسئلة الجاهزة</option>${GAMES.map(g=>`<option value="${g.id}" ${B.active===g.id?"selected":""}>${esc(g.name)} (${g.qs.length})</option>`).join("")}</select></label>
+    <label>اللعبة (بنك الأسئلة)<select id="inGame"><option value="builtin" ${B.active==="builtin"?"selected":""}>الأسئلة الجاهزة</option>${GAMES.map(g=>`<option value="${esc(g.id)}" ${B.active===g.id?"selected":""}>${esc(g.name)} (${g.qs.length})</option>`).join("")}</select></label>
     <label>إذا نقصت أسئلة حرف<select id="inFill"><option value="1" ${B.fill?"selected":""}>كمّل من الأسئلة الجاهزة</option><option value="0" ${B.fill?"":"selected"}>استخدم أسئلتي فقط</option></select></label>
     <label>النقاط<button class="btn ghost" data-act="zero" id="zeroBtn">${S.confirmZero?"متأكد؟ اضغط مرة ثانية":"تصفير النقاط"}</button></label>
   </div></details>`;
@@ -797,6 +886,15 @@ document.addEventListener("keydown",e=>{
 });
 
 tLeft=S.seconds; render();
+
+/* ---------- Offline + install as an app ---------- */
+if("serviceWorker" in navigator&&/^https?:$/.test(location.protocol))
+  addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(e=>console.warn("sw",e)));
+let installEvt=null;const installBtn=document.getElementById("installBtn");
+addEventListener("beforeinstallprompt",e=>{e.preventDefault();installEvt=e;installBtn.hidden=false});
+installBtn.onclick=async()=>{if(!installEvt)return;installEvt.prompt();await installEvt.userChoice.catch(()=>{});installEvt=null;installBtn.hidden=true};
+addEventListener("appinstalled",()=>{installBtn.hidden=true;toast("تثبّتت اللعبة، تقدر تفتحها حتى بدون نت")});
+addEventListener("offline",()=>toast("انقطع النت، اللعبة تكمّل عادي"));
 </script>
 
 </body>
